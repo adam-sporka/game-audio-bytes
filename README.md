@@ -1,6 +1,7 @@
 # Game Audio Bytes Repository
 
 This repository contains the code featured in my YouTube series Game Audio Bytes.
+
 https://www.youtube.com/c/adam_sporka
 
 # License

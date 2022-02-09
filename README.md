@@ -4,6 +4,10 @@ This repository contains the code featured in my YouTube series Game Audio Bytes
 
 https://www.youtube.com/c/adam_sporka
 
+Currently, it only contains one file, a batch file for channel reordering
+using ffmpeg. More will be added as I make more Game Audio Bytes videos.
+Expect various code snippets and demonstrations
+
 # License
 
 THE MATERIAL IN THE GAME AUDIO BYTES REPOSITORY IS PROVIDED BY THE COPYRIGHT

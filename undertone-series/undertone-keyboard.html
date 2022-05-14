@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<script src='_utils.js'></script>
+</head>
+<body>
+
+<canvas id="myCanvas" width="1920" height="1080" style="border:1px solid #d3d3d3;">
+Your browser does not support the HTML5 canvas tag.
+</canvas>
+
+<script>
+
+// base = 12000;
+// max_subdiv = 65536;
+base = 63921;
+max_subdiv = 256;
+
+var sx = 1920;
+var sy = 1080;
+
+var volume = 0;
+var target_volume = 0;
+var last_key = 0;
+var last_freq = 0;
+var transpose = 0;
+
+var phase = 0;
+
+////////////////////////////////////////////////////////////////
+function nearest_frequency(desired, max)
+{
+	var best_actual = 999999;
+	var best_subdiv = 0;
+	var found = true;
+
+	for (var a = 0; a <= max; a++)
+	{
+		var freq = base / (2 * a);
+		if (Math.abs(freq - desired) < Math.abs(best_actual - desired))
+		{	
+			best_actual = freq;
+			best_subdiv = a;
+		}
+	}
+	
+	if (best_subdiv >= max) found = false;
+	
+	return [ best_actual, best_subdiv, found ];
+}
+
+////////////////////////////////////////////////////////////////
+function get_bg_color(ct, black)
+{
+	ct = Math.abs(ct);
+
+	if (ct > 50)
+	{
+		if (black) return "#404040";
+		else return "#808080";
+	}
+	
+	if (ct > 50) c = 1;
+	else c = ct * 0.025;
+	
+	var r = c;
+	var g = 1 - c;
+	var b = 0;
+	
+	if (black)
+	{
+		r = r * 0.5;
+		g = g * 0.5;
+		b = 0;
+	}
+	else
+	{
+		r = r * 0.5 + 0.5;
+		g = g * 0.5 + 0.5;
+		b = 0.25;
+	}
+	
+	var color = hex_color(r, g, b);
+	return color;
+}
+
+////////////////////////////////////////////////////////////////
+function approximateTuning()
+{
+	var desired = note_to_freq(69);
+	var nearest = nearest_frequency(desired, max_subdiv)[0];
+	var ratio = nearest / desired;
+	return ratio;
+}
+
+////////////////////////////////////////////////////////////////
+function drawKey(ctx, note)
+{
+	var kx = 60;
+	var ky = 220;
+	var kxh = kx / 2 - 2;
+	var kyh = ky / 2 - 2;
+
+	var pos = keyboard_position(note);
+	
+	var x = sx / 2 + pos[0] / 2 * kx;
+	var y = sy / 2 + pos[1] * ky + 100;
+	
+	// var ratio = approximateTuning();
+	
+	var frequency = note_to_freq(note);
+	var nearest = nearest_frequency(frequency, max_subdiv);
+	var subdiv = nearest[1];
+	var found = nearest[2];
+	var obtained_frequency = nearest[0];
+	
+	var actual_note = freq_to_note(obtained_frequency);
+	var ct = Math.floor((actual_note - note) * 100);
+	if (ct > 0) ct = "+" + ct;
+	
+	if (note == last_key)
+	{
+		ctx.fillStyle = "#ffffff";
+		ctx.fillRect(x - kxh - 2, y - kxh - 2, kx, ky);
+	}
+	
+	var bg_color = get_bg_color(ct, pos[2]);
+	var fg_color = pos[2] ? "#ffffff" : "#303030";
+	ctx.fillStyle = bg_color;
+	ctx.fillRect(x - kxh, y - kxh, kx - 4, ky - 4);
+	
+	ctx.font = '18px Merriweather';
+	ctx.fillStyle = fg_color;
+	ctx.textAlign = "center"; 
+	ctx.fillText(note_to_name(note), x, y);
+
+	var yy = y + 20;
+	
+	ctx.font = '10px Merriweather';
+	ctx.fillText(format_as_100K(frequency, true), x, yy); yy += 12;
+	ctx.fillText("Hz", x, yy); yy += 12;
+	yy += 24;
+	
+	if (found)
+	{
+		ctx.fillText("Nearest", x, yy); yy += 12;
+		ctx.fillText(format_as_100K(obtained_frequency, true), x, yy); yy += 12;
+		ctx.fillText("Hz", x, yy); yy += 12;
+		yy += 8;
+
+		ctx.fillText("Cents", x, yy); yy += 12;
+		ctx.fillText(ct, x, yy); yy += 12;
+		yy += 24;
+
+		ctx.fillText("Reg.", x, yy); yy += 12;
+		ctx.fillText(subdiv, x, yy); yy += 12;
+		yy += 8;
+	}
+}
+
+////////////////////////////////////////////////////////////////
+function draw()
+{
+  var c = document.getElementById("myCanvas");
+  var ctx = c.getContext("2d");
+  ctx.fillStyle = "#606060";
+  ctx.fillRect(0, 0, sx, sy);
+
+ 	ctx.font = '72px Oswald';
+	ctx.fillStyle = "#ffab40";
+	ctx.textAlign = "center"; 
+	ctx.fillText("Chromatic Scale Approximation by POKEY (NTSC)", sx / 2, 180);
+	
+ 	ctx.font = '48px Oswald';
+	ctx.fillText("Base freq. " + format_as_100K(base) + " Hz", sx / 2, 240);
+  
+  for (var n = 36; n <= 84; n++)
+  {
+		drawKey(ctx, n);
+  }
+}
+
+////////////////////////////////////////////////////////////////
+function doTimer()
+{
+	draw();
+}
+
+////////////////////////////////////////////////////////////////
+window.onload = function()
+{
+	setInterval("doTimer()", 10);
+}
+
+////////////////////////////////////////////////////////////////
+function getBuffer(outputBuffer)
+{
+	var outputData = outputBuffer.getChannelData(0);
+	sample_rate = outputBuffer.sampleRate;
+	
+	for (var a = 0; a < outputBuffer.length; a++)
+	{
+		phase += 2 * Math.PI * last_freq / sample_rate;
+		outputData[a] = Math.sin(phase) * 0.1 * volume;
+		if (phase >= 2 * Math.PI) phase -= 2 * Math.PI;
+		
+		volume = 0.999 * volume + 0.001 * target_volume;
+	}
+}
+
+////////////////////////////////////////////////////////////////
+var started = false;
+var audioContext = new AudioContext();
+var bufferSource = audioContext.createBufferSource();
+var scriptProcessor = audioContext.createScriptProcessor(256, 0, 1);
+
+////////////////////////////////////////////////////////////////
+scriptProcessor.onaudioprocess = function(audioProcessingEvent)
+{
+	getBuffer(audioProcessingEvent.outputBuffer);
+}
+
+////////////////////////////////////////////////////////////////
+function onUserWantsToStart()
+{
+	if (!started) 
+	{	
+		bufferSource.connect(scriptProcessor);
+		scriptProcessor.connect(audioContext.destination);
+		bufferSource.start();
+		started = true;
+	}
+}
+
+////////////////////////////////////////////////////////////////
+document.addEventListener("keydown", function(event)
+{
+	const key = event.key;
+
+  if (key == "-") transpose -= 12;
+  if (key == "+") transpose += 12;
+  
+  if (key == '*') 
+  {
+		base *= 2;
+		base_human = base;
+		last_key = 0;
+		target_volume = 0.0;
+		return;
+  }
+  
+  if (key == '/') 
+  {
+		event.preventDefault();
+		base /= 2;
+		base_human = base;
+		last_key = 0;
+		target_volume = 0.0;
+		return;
+  }
+  
+  if (key == '=')
+  {
+		if (max_subdiv == 65536) max_subdiv = 256;
+		else max_subdiv = 65536;
+  }
+  
+	if (key_to_note[event.key] === undefined)
+	{
+		last_key = 0;
+		target_volume = 0.0;
+		return;
+	}
+	
+	var note = key_to_note[event.key] + transpose;
+	last_key = note;
+	var frequency = note_to_freq(note);
+	var nearest = nearest_frequency(frequency, max_subdiv);
+	last_freq = nearest[0];
+	target_volume = 1.0;
+ 
+	if (!started) onUserWantsToStart();
+	started = true;
+});
+
+</script>
+
+</body>
+</html>

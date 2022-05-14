@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+<head>
+<script src='_utils.js'></script>
+</head>
+<body>
+
+<canvas id="myCanvas" width="1920" height="1080" style="border:1px solid #d3d3d3;">
+Your browser does not support the HTML5 canvas tag.
+</canvas>
+
+<script>
+
+var highlight = 0;
+var count_bands = 11;
+var activations = {};
+var volumes = {};
+var phases = {};
+var base_note = 69;
+var enabled = true;
+var show_overtones = true;
+
+for (var a = -count_bands; a <= count_bands; a++)
+{
+	activations[a] = false;
+	phases[a] = 0;
+	volumes[a] = 0;
+}
+
+function draw()
+{
+  var c = document.getElementById("myCanvas");
+  var ctx = c.getContext("2d");
+  
+  var sx = 1920;
+  var sy = 1080;
+  
+  var px = 280;
+  
+  ctx.fillStyle = "#303030";
+  ctx.fillRect(0, 0, 1920, 1080);
+
+  ctx.fillStyle = "#d0d0d0";
+	ctx.font = '24px Merriweather';
+	ctx.textAlign = "left";
+	ctx.fillText("Undertone series", sx / 4, sy / 2 - 160);
+	
+	if (show_overtones) {
+		ctx.textAlign = "right";
+		ctx.fillText("Overtone series", 3 * sx / 4, sy / 2 - 160);
+	}
+	
+	base = note_to_freq(base_note);
+
+	for (var a = -count_bands; a <= count_bands; a++)
+	{
+		if ((a > 0) && (!show_overtones)) continue;
+	
+		var ratio = a < 0 ? 1 / ((-a) + 1) : (a + 1);
+		var frequency = base * ratio;
+
+		var x = sx / 2 + a * 64;
+		var y = sy / 2;
+		
+		if (a < 0) x -= 20;
+		if (a > 0) x += 20;
+
+		ctx.fillStyle = a == highlight ? "#608060" : "#404040";
+		ctx.fillRect(x - 28, y - 28, 56, 56);
+		
+		ctx.strokeStyle = "#608060";
+		ctx.lineWidth = 2;
+		if (activations[a])
+		{
+			ctx.beginPath();
+			ctx.rect(x - 30, y - 30, 60, 60);
+			ctx.stroke();
+		}
+		
+		ctx.font = '24px Merriweather';
+		ctx.textAlign = "center";
+		ctx.fillStyle = "#d0d0d0";
+		if (a < 0)
+		{
+			ctx.fillText("/" + ((-a) + 1), x, y - 64);
+		}
+		else if (a > 0)
+		{
+			ctx.fillText("*" + ((a) + 1), x, y - 64);
+		}
+		else ctx.fillText("Base", x, y - 64);
+
+		if (ratio == 1) ctx.font = '18px Merriweather';
+		else ctx.font = '12px Merriweather';
+		ctx.fillText(format_as_100K(frequency), x, y - 40);
+
+		ctx.font = '20px Merriweather';
+		ctx.fillText(note_to_name(freq_to_note(frequency)), x, y + 56);
+		
+		if (a != 0) {
+			ctx.font = '12px Merriweather';
+			var ct = get_ct(freq_to_note(frequency));
+			if (ct != "+0") ctx.fillText(ct, x, y + 76);
+		}
+	}
+
+	ctx.textAlign = "center";
+	ctx.font = '20px Merriweather';
+	ctx.fillText(". . .", sx / 2 - count_bands * 64 - 90, sy / 2);
+	
+	if (show_overtones) ctx.fillText(". . .", sx / 2 + count_bands * 64 + 90, sy / 2);
+
+}
+
+function doTimer()
+{
+	draw();
+}
+
+function getBuffer(outputBuffer)
+{
+	var outputData = outputBuffer.getChannelData(0);
+	sample_rate = outputBuffer.sampleRate;
+	
+	for (var i = 0; i < outputBuffer.length; i++)
+	{
+		var sum = 0.0;
+		for (var a = -count_bands; a < count_bands; a++)
+		{
+			var target = enabled ? (activations[a] ? 1.0 : 0.0) : 0.0;
+			volumes[a] = 0.995 * volumes[a] + 0.005 * target;
+		
+			var ratio = a < 0 ? 1 / ((-a) + 1) : (a + 1);
+			if (ratio == 0) ratio = 1;
+			var frequency = base * ratio;
+			phases[a] += frequency * 2 * 3.1415926535 / sample_rate
+			var value = Math.sin(phases[a]) * volumes[a] * 0.1;
+			sum += value;
+		}
+		outputData[i] = sum;
+	}
+}
+
+var audioContext = new AudioContext();
+var bufferSource = audioContext.createBufferSource();
+var scriptProcessor = audioContext.createScriptProcessor(256, 0, 1);
+
+scriptProcessor.onaudioprocess = function(audioProcessingEvent)
+{
+	getBuffer(audioProcessingEvent.outputBuffer);
+}
+
+var started = false;
+function onUserWantsToStart()
+{
+	if (!started) 
+	{	
+		bufferSource.connect(scriptProcessor);
+		scriptProcessor.connect(audioContext.destination);
+		bufferSource.start();
+		started = true;
+	}
+}
+
+document.addEventListener("keydown", function(event)
+{
+  const key = event.key;
+  switch (key) {
+    case "ArrowLeft":
+			highlight--;
+      break;
+    case "ArrowRight":
+			highlight++;
+      break;
+    case "Home":
+			highlight = 0;
+      break;
+    case "End":
+			for (var a = -count_bands; a <= count_bands; a++) { activations[a] = false; }
+			break;
+    case "1":
+			base_note = 69 - 24;
+			break;
+    case "2":
+			base_note = 69 - 12;
+			break;
+    case "3":
+			base_note = 69;
+			break;
+    case "4":
+			base_note = 69 + 12;
+			break;
+    case "5":
+			base_note = 69 + 24;
+			break;
+    case "+":
+			base_note++;
+			break;
+    case "-":
+				base_note--;
+			break;
+		case "z":
+			enabled = !enabled;
+			break;
+		case "x":
+			show_overtones = !show_overtones;
+			break;
+    case " ":
+			onUserWantsToStart();
+			activations[highlight] = !activations[highlight];
+      break;
+    default:
+		  event.preventDefault();
+		  break;
+  }
+	if (highlight < -count_bands) highlight = -count_bands;
+	if (highlight > count_bands) highlight = count_bands;
+});
+
+
+
+window.onload = function()
+{
+	setInterval("doTimer()", 10);
+}
+
+</script>
+
+</body>
+</html>

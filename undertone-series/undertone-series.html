@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<script src='_utils.js'></script>
+</head>
+<body>
+
+<canvas id="myCanvas" width="1920" height="1080" style="border:1px solid #d3d3d3;">
+Your browser does not support the HTML5 canvas tag.
+</canvas>
+
+<script>
+
+const d = new Date();
+var last_time = d.getTime();
+var elapsed_time = 0;
+var highlight = 1;
+var started = false;
+var count_bands = 21;
+
+var phase = 0;
+var multiplier = 4;
+var sample_rate = 48000;
+var show_higher = true;
+
+var sx = 1920;
+var sy = 1080;
+
+var color_dots_low = "#808080";
+var color_dots_hight = "#f0f0f0";
+var color_led_off = "#666666";
+var color_led_on = "#ffffff";
+var bg_color = "#303030";
+var color_highlight = "#406040";
+var color_highlight_line = "#c0ffc0";
+var color_captions = "#d0d0d0";
+var color_white = "#ffffff";
+
+////////////////////////////////////////////////////////////////////////////////
+function drawSquareWave(ctx, color, width, x1, y1, x2, period, count_dots)
+{
+	ctx.strokeStyle = color;
+	ctx.lineWidth  = width;
+	ctx.beginPath();
+	var b = false;
+	var half_period = period / 2;
+
+	var y_l = y1;
+	var y_h = y1 + 20;
+	
+	var counter = 0;
+
+	for (var x = x1; x < x2; x += half_period)
+	{
+		var xx = x + half_period;
+		if (xx > x2) xx = x2;
+	
+		if (!b)
+		{
+			if (x == x1) ctx.moveTo(x, y_l);
+			else ctx.lineTo(x, y_l);
+			ctx.lineTo(xx, y_l);
+		}
+		else
+		{
+			ctx.lineTo(x, y_h);
+			ctx.lineTo(xx, y_h);
+		}
+		b = !b;
+	}
+	ctx.stroke();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+function drawGuides(ctx, color, x1, y0, y1, period, order)
+{
+	ctx.strokeStyle = color;
+	var b = false;
+	var half_period = period / 2;
+	var x = x1 + order * period;
+	var sample_rate = 1;
+
+	var y_l = y0 + 20;		
+	var y_h = y1;
+
+	ctx.beginPath();
+	ctx.moveTo(x, y_l);
+	ctx.lineTo(x, y_h);
+	ctx.stroke();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+function drawLed(ctx, time, x, y, cx, cy, period)
+{
+	var frames_per_period = Math.floor(period * 30);
+	var frame = Math.floor(time * 30);
+	var frames_in_period = frame % frames_per_period;
+	var lit = frames_in_period < frames_per_period / 2;
+	if (lit) ctx.fillStyle = color_led_on;
+	else ctx.fillStyle = color_led_off;
+	ctx.fillRect(x, y, cx, cy);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+function get_visual_period(line) {
+	if (line == 1) return 1;
+	return (line - 1) * 2;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+function get_audio_period(line) {
+	if (line == 1) return 0;
+	return (line - 1) * 2;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+function get_audio_frequency(line) {
+	if (line == 1) return sample_rate / multiplier;
+	return sample_rate / (line - 1) / multiplier / 2;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+function draw()
+{
+	const d = new Date();
+	var time_now = d.getTime();
+	var delta_time = time_now - last_time;
+	last_time = time_now;
+	elapsed_time += delta_time;
+	var frame = elapsed_time / 1000;
+	
+	var c = document.getElementById("myCanvas");
+  var ctx = c.getContext("2d");
+  
+	var px = 280;
+
+	////////////////////////////////
+	ctx.fillStyle = bg_color;
+	ctx.fillRect(0, 0, sx, sy);
+  
+  var effective_limit = count_bands;
+  if (!show_higher) effective_limit = highlight;
+
+	// DRAW HIGHLIGHTS
+
+	if (highlight > 1)
+	{
+		var y = highlight == 1 ? 50 : 100;
+		var color = color_highlight_line;
+		drawGuides(ctx, color, px, 100, y + highlight * 40 - 10, 20, get_visual_period(highlight) / 2);
+		drawGuides(ctx, color, px, 100, y + highlight * 40 - 10, 20, get_visual_period(highlight));
+	}
+
+	// DRAW THE WAVEFORMS
+
+	for (var a = 1; a <= effective_limit; a++)
+	{
+		var y = a == 1 ? 50 : 100;
+
+		var period = get_visual_period(a) * 20;
+		
+		drawSquareWave(ctx, bg_color, 8, px, y + a * 40, sx - 90, period, -1);
+
+		if (a == highlight)
+		{
+			ctx.fillStyle = color_highlight;
+			ctx.fillRect(0, y + a * 40 - 4, sx, 28);
+		}
+		
+		drawSquareWave(ctx, color_white, 1, px, y + a * 40, sx - 90, period, a == 1 && highlight > 1 ? highlight : -1);
+		
+		var freq = get_audio_frequency(a);
+		
+		ctx.font = '24px Merriweather';
+		ctx.fillStyle = color_captions;
+		ctx.textAlign = "right"; 
+		ctx.fillText(format_as_100K(freq), px - 40, y + a * 40 + 18);
+
+		var text = "";
+		if (a == 1) text = "Clock";
+		else if (a == 2) text = "Reg = 1";
+		else text = a - 1;
+
+		ctx.fillText(text, px - 140, y + a * 40 + 18);
+	}
+}
+
+////////////////////////////////////////////////////////////////////////////////
+function doTimer()
+{
+	draw();
+}
+
+var started = false;
+var audioContext = new AudioContext();
+var bufferSource = audioContext.createBufferSource();
+var scriptProcessor = audioContext.createScriptProcessor(256, 0, 1);
+
+////////////////////////////////////////////////////////////////////////////////
+scriptProcessor.onaudioprocess = function(audioProcessingEvent)
+{
+	getBuffer(audioProcessingEvent.outputBuffer);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+function onUserWantsToStart()
+{
+	if (!started) 
+	{	
+		bufferSource.connect(scriptProcessor);
+		scriptProcessor.connect(audioContext.destination);
+		bufferSource.start();
+		started = true;
+	}
+}
+
+////////////////////////////////////////////////////////////////////////////////
+function getBuffer(outputBuffer)
+{
+	var outputData = outputBuffer.getChannelData(0);
+	sample_rate = outputBuffer.sampleRate;
+
+	var period = multiplier * get_audio_period(highlight);
+	
+	for (var a = 0; a < outputBuffer.length; a++)
+	{
+		outputData[a] = phase < period / 2 ? -0.1 : 0.1;
+		phase++;
+		if (phase >= period) phase = 0;
+	}
+}
+
+////////////////////////////////////////////////////////////////////////////////
+document.addEventListener("keydown", function(event)
+{
+  const key = event.key;
+  switch (key) {
+    case "ArrowUp":
+			highlight--;
+      break;
+    case "ArrowDown":
+			highlight++;
+			break;
+		case "+":
+			multiplier++;
+			break;
+		case "-":
+			multiplier--;
+			break;
+		case "x":
+			show_higher = !show_higher;
+			break;
+    default:
+			return;
+  }
+  event.preventDefault();
+	if (!started) onUserWantsToStart();
+	started = true;
+
+	if (highlight < -1) highlight = -1;
+	if (highlight > count_bands) highlight = count_bands;
+});
+
+////////////////////////////////////////////////////////////////////////////////
+window.onload = function()
+{
+	setInterval("doTimer()", 10);
+}
+
+</script>
+
+</body>
+</html>
